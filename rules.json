@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "User-Agent",
+          "operation": "set",
+          "value": "netdisk;2.2.51.6;netdisk;10.0.63;PC;PC-Windows;6.2.9200;WindowsBaiduYunGuanJia"
+        },
+        {
+          "header": "Referer",
+          "operation": "set",
+          "value": "https://pan.baidu.com/disk/home"
+        }
+      ]
+    },
+    "condition": {
+      "requestDomains": [
+        "d.pcs.baidu.com"
+      ]
+    }
+  }
+]

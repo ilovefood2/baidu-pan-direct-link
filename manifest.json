@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "百度网盘直链助手",
+  "description": "在百度网盘当前登录会话中读取目录，并解析服务器返回的文件下载直链。",
+  "version": "1.0.3",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "declarativeNetRequestWithHostAccess",
+    "downloads",
+    "scripting",
+    "sidePanel",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://d.pcs.baidu.com/*",
+    "https://pan.baidu.com/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "baidu_download_headers",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "打开百度网盘直链助手"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://pan.baidu.com/disk/main*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

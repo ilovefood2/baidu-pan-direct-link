@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>百度网盘直链助手</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span>
+            <span></span>
+          </div>
+          <div>
+            <h1>PanLink</h1>
+            <p>百度网盘直链助手</p>
+          </div>
+        </div>
+        <span id="connectionBadge" class="badge badge-neutral">未连接</span>
+      </header>
+
+      <section id="unsupportedCard" class="notice notice-warning" hidden>
+        <strong>请打开百度网盘文件页</strong>
+        <p>
+          在浏览器中打开
+          <code>pan.baidu.com/disk/main</code>
+          并登录，然后回到这里刷新。
+        </p>
+        <button id="retryButton" class="button button-secondary" type="button">
+          重新连接
+        </button>
+      </section>
+
+      <section id="workspace" hidden>
+        <div class="path-card">
+          <div class="section-kicker">当前目录</div>
+          <div class="path-row">
+            <button
+              id="upButton"
+              class="icon-button"
+              type="button"
+              title="返回上级目录"
+              aria-label="返回上级目录"
+            >
+              ↑
+            </button>
+            <div id="pathText" class="path-text">/</div>
+            <button
+              id="refreshButton"
+              class="icon-button"
+              type="button"
+              title="刷新目录"
+              aria-label="刷新目录"
+            >
+              ↻
+            </button>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <label class="search-box">
+            <span aria-hidden="true">⌕</span>
+            <input
+              id="searchInput"
+              type="search"
+              placeholder="筛选当前目录"
+              autocomplete="off"
+            >
+          </label>
+          <button id="selectAllButton" class="button button-quiet" type="button">
+            全选文件
+          </button>
+        </div>
+
+        <section class="file-card" aria-labelledby="fileListHeading">
+          <div class="section-heading">
+            <div>
+              <div class="section-kicker">文件</div>
+              <h2 id="fileListHeading">
+                <span id="fileCount">0</span> 项
+              </h2>
+            </div>
+            <span id="selectedCount" class="selection-count">已选 0</span>
+          </div>
+
+          <div id="loadingState" class="empty-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <p>正在读取目录…</p>
+          </div>
+
+          <div id="emptyState" class="empty-state" hidden>
+            <span class="empty-icon" aria-hidden="true">□</span>
+            <p>这个目录里没有可显示的文件</p>
+          </div>
+
+          <div id="fileList" class="file-list"></div>
+        </section>
+
+        <div class="sticky-action">
+          <div class="action-copy">
+            <strong id="actionTitle">选择需要解析的文件</strong>
+            <span>文件夹可点击进入</span>
+          </div>
+          <button id="generateButton" class="button button-primary" type="button" disabled>
+            解析直链
+          </button>
+        </div>
+
+        <section id="resultsSection" class="results-section" hidden>
+          <div class="section-heading">
+            <div>
+              <div class="section-kicker">解析结果</div>
+              <h2><span id="resultCount">0</span> 条直链</h2>
+            </div>
+            <div class="result-actions">
+              <button id="copyAllButton" class="button button-quiet" type="button">
+                复制全部
+              </button>
+              <button id="clearResultsButton" class="button button-quiet" type="button">
+                清空
+              </button>
+            </div>
+          </div>
+          <div id="resultList" class="result-list"></div>
+          <p class="result-note">
+            直链由百度服务器返回，具有时效。大文件如下载失败，可复制 aria2
+            命令，其中已包含所需 User-Agent。
+          </p>
+        </section>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
