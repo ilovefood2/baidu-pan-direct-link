@@ -1,6 +1,4 @@
-const DOWNLOAD_MESSAGE = "PANLINK_START_DOWNLOAD";
 const DOWNLOAD_STATUS_MESSAGE = "PANLINK_DOWNLOAD_STATUS";
-const activeDownloads = new Map();
 
 chrome.runtime.onInstalled.addListener(() => {
   configureSidePanel();
@@ -20,61 +18,30 @@ async function configureSidePanel() {
   }
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== DOWNLOAD_MESSAGE) {
-    return false;
-  }
-
-  startDownload(message)
-    .then((downloadId) => sendResponse({ ok: true, downloadId }))
-    .catch((error) => sendResponse({ ok: false, error: error.message }));
-
-  return true;
-});
-
 chrome.downloads.onChanged.addListener((delta) => {
   handleDownloadChange(delta).catch((error) => {
     console.warn("无法读取下载状态：", error);
   });
 });
 
-async function startDownload(message) {
-  const url = validateDownloadUrl(message.url);
-  const filename = sanitizeFilename(message.filename);
-  const options = {
-    url,
-    saveAs: true,
-    conflictAction: "uniquify"
-  };
-
-  if (filename) {
-    options.filename = filename;
-  }
-
-  const downloadId = await chrome.downloads.download(options);
-  activeDownloads.set(downloadId, { filename: filename || "文件" });
-  return downloadId;
-}
-
 async function handleDownloadChange(delta) {
-  let task = activeDownloads.get(delta.id);
   const isTerminal =
     Boolean(delta.error?.current) ||
     delta.state?.current === "complete" ||
     delta.state?.current === "interrupted";
 
-  if (!task && isTerminal) {
-    const [item] = await chrome.downloads.search({ id: delta.id });
-    if (isBaiduDownload(item?.url)) {
-      task = {
-        filename: downloadBasename(item?.filename) || "文件"
-      };
-    }
-  }
-
-  if (!task) {
+  if (!isTerminal) {
     return;
   }
+
+  const [item] = await chrome.downloads.search({ id: delta.id });
+  if (!isBaiduDownload(item?.url)) {
+    return;
+  }
+
+  const task = {
+    filename: downloadBasename(item?.filename) || "文件"
+  };
 
   if (delta.error?.current) {
     notifyDownloadStatus({
@@ -83,7 +50,6 @@ async function handleDownloadChange(delta) {
       status: "error",
       error: describeDownloadError(delta.error.current)
     });
-    activeDownloads.delete(delta.id);
     return;
   }
 
@@ -93,7 +59,6 @@ async function handleDownloadChange(delta) {
       filename: task.filename,
       status: "complete"
     });
-    activeDownloads.delete(delta.id);
     return;
   }
 
@@ -105,7 +70,6 @@ async function handleDownloadChange(delta) {
       status: "error",
       error: describeDownloadError(item?.error || "SERVER_FAILED")
     });
-    activeDownloads.delete(delta.id);
   }
 }
 
@@ -155,30 +119,4 @@ function describeDownloadError(reason) {
   };
 
   return messages[reason] || `下载中断（${reason}）`;
-}
-
-function validateDownloadUrl(value) {
-  let url;
-  try {
-    url = new URL(String(value));
-  } catch {
-    throw new Error("下载地址无效");
-  }
-
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("仅支持 HTTP 或 HTTPS 下载地址");
-  }
-
-  return url.href;
-}
-
-function sanitizeFilename(value) {
-  if (!value) {
-    return "";
-  }
-
-  return String(value)
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
-    .replace(/[. ]+$/g, "")
-    .slice(0, 180);
 }

@@ -465,20 +465,14 @@ async function copyText(text, successMessage) {
 }
 
 async function startBrowserDownload(result) {
-  let response;
   try {
-    response = await chrome.runtime.sendMessage({
+    await sendToContent({
       type: "PANLINK_START_DOWNLOAD",
       url: result.dlink,
       filename: result.name
     });
   } catch (error) {
-    showToast(error.message || "无法连接扩展后台", true);
-    return;
-  }
-
-  if (!response?.ok) {
-    showToast(response?.error || "无法开始下载", true);
+    showToast(error.message || "无法从百度网盘页面开始下载", true);
     return;
   }
 

@@ -43,6 +43,9 @@
       case "PANLINK_GET_DLINKS":
         return getDownloadLinks(message.files);
 
+      case "PANLINK_START_DOWNLOAD":
+        return startPageDownload(message.url, message.filename);
+
       default:
         throw new Error("不支持的扩展操作");
     }
@@ -138,6 +141,36 @@
       isDirectory: Number(file.isdir) === 1,
       modifiedAt: Number(file.server_mtime || file.local_mtime || 0) * 1000
     };
+  }
+
+  function startPageDownload(value, filename) {
+    let url;
+    try {
+      url = new URL(String(value));
+    } catch {
+      throw new Error("下载地址无效");
+    }
+
+    if (url.protocol !== "https:" || url.hostname !== "d.pcs.baidu.com") {
+      throw new Error("百度下载地址无效");
+    }
+
+    const anchor = document.createElement("a");
+    anchor.href = url.href;
+    anchor.download = sanitizeFilename(filename);
+    anchor.style.display = "none";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+
+    return { started: true };
+  }
+
+  function sanitizeFilename(value) {
+    return String(value || "")
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+      .replace(/[. ]+$/g, "")
+      .slice(0, 180);
   }
 
   async function getDownloadLinks(files) {
