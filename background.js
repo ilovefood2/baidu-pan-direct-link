@@ -1,4 +1,7 @@
 const DOWNLOAD_STATUS_MESSAGE = "PANLINK_DOWNLOAD_STATUS";
+const START_DOWNLOAD_MESSAGE = "PANLINK_START_DOWNLOAD";
+const RESOLVE_ARIA2_MESSAGE = "PANLINK_RESOLVE_ARIA2";
+const DOWNLOAD_TASK_PREFIX = "panlinkDownload:";
 
 chrome.runtime.onInstalled.addListener(() => {
   configureSidePanel();
@@ -10,11 +13,188 @@ chrome.runtime.onStartup.addListener(() => {
 
 configureSidePanel();
 
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  let operation;
+  if (message?.type === START_DOWNLOAD_MESSAGE) {
+    operation = startAuthenticatedDownload(
+      message.path,
+      message.filename,
+      message.expectedSize
+    );
+  } else if (message?.type === RESOLVE_ARIA2_MESSAGE) {
+    operation = resolveAria2Url(message.path);
+  } else {
+    return false;
+  }
+
+  operation
+    .then((data) => sendResponse({ ok: true, data }))
+    .catch((error) => {
+      sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+
+  return true;
+});
+
 async function configureSidePanel() {
   try {
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   } catch (error) {
     console.warn("无法设置侧边栏行为：", error);
+  }
+}
+
+async function startAuthenticatedDownload(
+  pathValue,
+  filenameValue,
+  expectedSizeValue
+) {
+  const path = normalizeDownloadPath(pathValue);
+  const filename =
+    sanitizeFilename(filenameValue) ||
+    sanitizeFilename(path.split("/").pop()) ||
+    "百度网盘文件";
+  const expectedSize = normalizeExpectedSize(expectedSizeValue);
+  const downloadId = await chrome.downloads.download({
+    url: buildPcsDownloadUrl(path),
+    filename,
+    conflictAction: "uniquify",
+    saveAs: false
+  });
+
+  if (!Number.isInteger(downloadId)) {
+    throw new Error("Chrome 未能创建下载任务");
+  }
+
+  await chrome.storage.session.set({
+    [downloadTaskKey(downloadId)]: {
+      filename,
+      expectedSize
+    }
+  });
+
+  return { downloadId };
+}
+
+function normalizeExpectedSize(value) {
+  const size = Number(value);
+  return Number.isSafeInteger(size) && size >= 0 ? size : 0;
+}
+
+function downloadTaskKey(downloadId) {
+  return `${DOWNLOAD_TASK_PREFIX}${downloadId}`;
+}
+
+function normalizeDownloadPath(value) {
+  const path = String(value || "").trim();
+  if (!path.startsWith("/") || path === "/") {
+    throw new Error("文件路径无效，请重新解析");
+  }
+
+  const segments = [];
+  for (const segment of path.split("/")) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      segments.pop();
+    } else {
+      segments.push(segment);
+    }
+  }
+
+  if (!segments.length) {
+    throw new Error("文件路径无效，请重新解析");
+  }
+  return `/${segments.join("/")}`;
+}
+
+function sanitizeFilename(value) {
+  return String(value || "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/[. ]+$/g, "")
+    .slice(0, 180);
+}
+
+function buildPcsDownloadUrl(path) {
+  const params = new URLSearchParams({
+    method: "download",
+    app_id: "778750",
+    path,
+    ver: "2.0",
+    clienttype: "1"
+  });
+  return `https://c.pcs.baidu.com/rest/2.0/pcs/file?${params.toString()}`;
+}
+
+async function resolveAria2Url(pathValue) {
+  const path = normalizeDownloadPath(pathValue);
+  let response;
+  try {
+    response = await fetch(buildPcsDownloadUrl(path), {
+      credentials: "include",
+      redirect: "follow",
+      cache: "no-store"
+    });
+  } catch {
+    throw new Error("无法连接百度服务器生成 aria2c 地址");
+  }
+
+  if (!response.ok) {
+    throw new Error(await describePcsResponseError(response));
+  }
+
+  const finalUrl = response.url;
+  if (!isAllowedBaiduCdnUrl(finalUrl)) {
+    await cancelResponseBody(response);
+    throw new Error("百度没有返回可供 aria2c 使用的临时 CDN 地址");
+  }
+
+  await cancelResponseBody(response);
+  return { url: finalUrl };
+}
+
+async function describePcsResponseError(response) {
+  let detail = "";
+  try {
+    const text = await response.text();
+    const payload = JSON.parse(text);
+    detail = payload.error_msg || payload.errmsg || payload.message || "";
+  } catch {
+    await cancelResponseBody(response);
+  }
+
+  return detail
+    ? `百度拒绝生成 aria2c 地址：${detail}`
+    : `百度拒绝生成 aria2c 地址（HTTP ${response.status}）`;
+}
+
+async function cancelResponseBody(response) {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The response may already be closed after a short ranged request.
+  }
+}
+
+function isAllowedBaiduCdnUrl(value) {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      (hostname === "d.pcs.baidu.com" ||
+        hostname === "baidupcs.com" ||
+        hostname.endsWith(".baidupcs.com"))
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -34,19 +214,21 @@ async function handleDownloadChange(delta) {
     return;
   }
 
-  const [item] = await chrome.downloads.search({ id: delta.id });
-  if (!isBaiduDownload(item?.url)) {
+  const taskKey = downloadTaskKey(delta.id);
+  const stored = await chrome.storage.session.get(taskKey);
+  const task = stored[taskKey];
+  if (!task) {
     return;
   }
-
-  const task = {
-    filename: downloadBasename(item?.filename) || "文件"
-  };
+  await chrome.storage.session.remove(taskKey);
+  const [item] = await chrome.downloads.search({ id: delta.id });
+  const filename =
+    downloadBasename(item?.filename) || task.filename || "文件";
 
   if (delta.error?.current) {
     notifyDownloadStatus({
       downloadId: delta.id,
-      filename: task.filename,
+      filename,
       status: "error",
       error: describeDownloadError(delta.error.current)
     });
@@ -54,9 +236,24 @@ async function handleDownloadChange(delta) {
   }
 
   if (delta.state?.current === "complete") {
+    if (
+      task.expectedSize > 0 &&
+      Number.isFinite(item?.totalBytes) &&
+      item.totalBytes >= 0 &&
+      item.totalBytes !== task.expectedSize
+    ) {
+      notifyDownloadStatus({
+        downloadId: delta.id,
+        filename,
+        status: "error",
+        error: "百度返回的文件大小不符，可能是错误信息而不是原文件"
+      });
+      return;
+    }
+
     notifyDownloadStatus({
       downloadId: delta.id,
-      filename: task.filename,
+      filename,
       status: "complete"
     });
     return;
@@ -66,18 +263,10 @@ async function handleDownloadChange(delta) {
     const [item] = await chrome.downloads.search({ id: delta.id });
     notifyDownloadStatus({
       downloadId: delta.id,
-      filename: task.filename,
+      filename,
       status: "error",
       error: describeDownloadError(item?.error || "SERVER_FAILED")
     });
-  }
-}
-
-function isBaiduDownload(value) {
-  try {
-    return new URL(value).hostname === "d.pcs.baidu.com";
-  } catch {
-    return false;
   }
 }
 

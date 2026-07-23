@@ -1,18 +1,21 @@
 {
   "manifest_version": 3,
   "name": "百度网盘直链助手",
-  "description": "在百度网盘当前登录会话中读取目录，并解析服务器返回的文件下载直链。",
-  "version": "1.0.4",
+  "description": "在百度网盘当前登录会话中读取目录，并通过浏览器登录态下载文件。",
+  "version": "1.0.6",
   "minimum_chrome_version": "114",
   "permissions": [
     "declarativeNetRequestWithHostAccess",
     "downloads",
     "scripting",
     "sidePanel",
+    "storage",
     "tabs"
   ],
   "host_permissions": [
+    "https://c.pcs.baidu.com/*",
     "https://d.pcs.baidu.com/*",
+    "https://*.baidupcs.com/*",
     "https://pan.baidu.com/*"
   ],
   "declarative_net_request": {

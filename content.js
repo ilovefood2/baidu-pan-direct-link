@@ -7,7 +7,6 @@
   const MESSAGE_PREFIX = "PANLINK_";
   const MAX_PAGES = 50;
   const PAGE_SIZE = 1000;
-  const META_BATCH_SIZE = 50;
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message?.type?.startsWith(MESSAGE_PREFIX)) {
@@ -42,9 +41,6 @@
 
       case "PANLINK_GET_DLINKS":
         return getDownloadLinks(message.files);
-
-      case "PANLINK_START_DOWNLOAD":
-        return startPageDownload(message.url, message.filename);
 
       default:
         throw new Error("不支持的扩展操作");
@@ -143,36 +139,6 @@
     };
   }
 
-  function startPageDownload(value, filename) {
-    let url;
-    try {
-      url = new URL(String(value));
-    } catch {
-      throw new Error("下载地址无效");
-    }
-
-    if (url.protocol !== "https:" || url.hostname !== "d.pcs.baidu.com") {
-      throw new Error("百度下载地址无效");
-    }
-
-    const anchor = document.createElement("a");
-    anchor.href = url.href;
-    anchor.download = sanitizeFilename(filename);
-    anchor.style.display = "none";
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-
-    return { started: true };
-  }
-
-  function sanitizeFilename(value) {
-    return String(value || "")
-      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
-      .replace(/[. ]+$/g, "")
-      .slice(0, 180);
-  }
-
   async function getDownloadLinks(files) {
     if (!Array.isArray(files) || files.length === 0) {
       throw new Error("请先选择至少一个文件");
@@ -187,38 +153,16 @@
       return {
         fsId: /^\d+$/.test(fsId) ? fsId : "",
         name: String(file?.name || path.split("/").pop() || "未命名文件"),
-        path
+        path,
+        size: Number(file?.size || 0)
       };
     });
 
-    const results = [];
-    for (let offset = 0; offset < normalized.length; offset += META_BATCH_SIZE) {
-      const batch = normalized.slice(offset, offset + META_BATCH_SIZE);
-      const payload = await fetchFileMetas(batch);
-      const entries = Array.isArray(payload.info)
-        ? payload.info
-        : Array.isArray(payload.list)
-          ? payload.list
-          : [];
-      const byFsId = new Map(
-        entries.map((entry) => [String(entry.fs_id ?? ""), entry])
-      );
-      const byPath = new Map(
-        entries.map((entry) => [normalizePath(entry.path || "/"), entry])
-      );
-
-      for (const file of batch) {
-        const entry = byFsId.get(file.fsId) || byPath.get(file.path);
-        results.push({
-          fsId: file.fsId,
-          name: file.name,
-          path: file.path,
-          size: Number(entry?.size || 0),
-          dlink: String(entry?.dlink || ""),
-          error: entry?.dlink ? "" : "百度接口未返回直链"
-        });
-      }
-    }
+    const results = normalized.map((file) => ({
+      ...file,
+      dlink: buildPcsDownloadUrl(file.path),
+      error: ""
+    }));
 
     return {
       generatedAt: Date.now(),
@@ -226,69 +170,15 @@
     };
   }
 
-  async function fetchFileMetas(files) {
-    const paths = files.map((file) => file.path);
-    const fsIds = files.map((file) => file.fsId).filter(Boolean);
-
-    if (fsIds.length === files.length) {
-      const fsids = `[${fsIds.join(",")}]`;
-      const xpanParams = new URLSearchParams({
-        method: "filemetas",
-        fsids,
-        dlink: "1",
-        channel: "chunlei",
-        web: "1",
-        app_id: "250528",
-        clienttype: "0"
-      });
-
-      try {
-        const payload = await panFetch(
-          `/rest/2.0/xpan/multimedia?${xpanParams.toString()}`
-        );
-        const entries = Array.isArray(payload.list) ? payload.list : [];
-        if (entries.some((entry) => entry?.dlink)) {
-          return payload;
-        }
-      } catch {
-        // Fall through to the legacy path-based endpoint for compatibility.
-      }
-    }
-
-    const target = JSON.stringify(paths);
-    const getParams = new URLSearchParams({
-      target,
-      dlink: "1",
-      web: "5",
-      origin: "dlna"
+  function buildPcsDownloadUrl(path) {
+    const params = new URLSearchParams({
+      method: "download",
+      app_id: "778750",
+      path,
+      ver: "2.0",
+      clienttype: "1"
     });
-
-    try {
-      return await panFetch(`/api/filemetas?${getParams.toString()}`);
-    } catch (getError) {
-      const postParams = new URLSearchParams({
-        dlink: "1",
-        web: "1",
-        channel: "chunlei",
-        app_id: "250528",
-        clienttype: "0"
-      });
-      const body = new URLSearchParams({ target });
-
-      try {
-        return await panFetch(`/api/filemetas?${postParams.toString()}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
-          },
-          body: body.toString()
-        });
-      } catch (postError) {
-        throw new Error(
-          `直链接口不可用：${postError.message || getError.message}`
-        );
-      }
-    }
+    return `https://c.pcs.baidu.com/rest/2.0/pcs/file?${params.toString()}`;
   }
 
   async function panFetch(path, options = {}) {

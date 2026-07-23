@@ -1,7 +1,5 @@
 const CONTENT_SCRIPT_FILE = "content.js";
-const BAIDU_DOWNLOAD_USER_AGENT =
-  "netdisk;2.2.51.6;netdisk;10.0.63;PC;PC-Windows;6.2.9200;WindowsBaiduYunGuanJia";
-
+const ARIA2_USER_AGENT = "softxm;netdisk";
 const state = {
   tabId: null,
   currentPath: "/",
@@ -13,6 +11,7 @@ const state = {
 };
 
 const elements = {
+  versionLabel: document.querySelector("#versionLabel"),
   connectionBadge: document.querySelector("#connectionBadge"),
   unsupportedCard: document.querySelector("#unsupportedCard"),
   workspace: document.querySelector("#workspace"),
@@ -40,6 +39,7 @@ const elements = {
 let toastTimer;
 let tabRefreshTimer;
 
+elements.versionLabel.textContent = `v${chrome.runtime.getManifest().version}`;
 elements.retryButton.addEventListener("click", connect);
 elements.refreshButton.addEventListener("click", () => loadDirectory(state.currentPath));
 elements.upButton.addEventListener("click", () => loadDirectory(parentPath(state.currentPath)));
@@ -415,11 +415,9 @@ function createResultItem(result) {
   const buttons = document.createElement("div");
   buttons.className = "result-buttons";
   buttons.append(
-    resultButton("复制直链", () => copyText(result.dlink, "直链已复制")),
+    resultButton("复制地址", () => copyText(result.dlink, "下载地址已复制")),
     resultButton("浏览器下载", () => startBrowserDownload(result)),
-    resultButton("复制 aria2", () =>
-      copyText(buildAria2Command(result), "aria2 命令已复制")
-    )
+    resultButton("复制 aria2c", () => copyAria2Command(result))
   );
   item.append(buttons);
   return item;
@@ -466,29 +464,53 @@ async function copyText(text, successMessage) {
 
 async function startBrowserDownload(result) {
   try {
-    await sendToContent({
+    const response = await chrome.runtime.sendMessage({
       type: "PANLINK_START_DOWNLOAD",
-      url: result.dlink,
-      filename: result.name
+      path: result.path,
+      filename: result.name,
+      expectedSize: result.size
     });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Chrome 未能创建下载任务");
+    }
   } catch (error) {
-    showToast(error.message || "无法从百度网盘页面开始下载", true);
+    showToast(error.message || "无法开始下载", true);
     return;
   }
 
   showToast("下载已开始");
 }
 
-function buildAria2Command(result) {
+async function copyAria2Command(result) {
+  showToast("正在生成 aria2c 地址…");
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "PANLINK_RESOLVE_ARIA2",
+      path: result.path
+    });
+    if (!response?.ok || !response.data?.url) {
+      throw new Error(response?.error || "没有取得 aria2c 下载地址");
+    }
+
+    await copyText(
+      buildAria2Command(result, response.data.url),
+      "aria2c 命令已复制"
+    );
+  } catch (error) {
+    showToast(error.message || "无法生成 aria2c 命令", true);
+  }
+}
+
+function buildAria2Command(result, downloadUrl) {
   return [
     "aria2c",
     "-c",
-    "-s16",
-    "-x16",
-    `--user-agent="${BAIDU_DOWNLOAD_USER_AGENT}"`,
-    '--referer="https://pan.baidu.com/disk/home"',
+    "-x4",
+    "-s4",
+    `--user-agent=${shellQuote(ARIA2_USER_AGENT)}`,
+    `--referer=${shellQuote("https://pan.baidu.com/disk/home")}`,
     `--out=${shellQuote(result.name)}`,
-    shellQuote(result.dlink)
+    shellQuote(downloadUrl)
   ].join(" ");
 }
 

@@ -16,7 +16,7 @@
           </div>
           <div>
             <h1>PanLink</h1>
-            <p>百度网盘直链助手</p>
+            <p>百度网盘直链助手 · <span id="versionLabel"></span></p>
           </div>
         </div>
         <span id="connectionBadge" class="badge badge-neutral">未连接</span>
@@ -126,8 +126,8 @@
           </div>
           <div id="resultList" class="result-list"></div>
           <p class="result-note">
-            直链由百度服务器返回，具有时效。大文件如下载失败，可复制 aria2
-            命令，其中已包含所需 User-Agent。
+            浏览器下载会由 Chrome 在当前百度登录会话中发起，不会离开文件页。
+            “复制 aria2c”会先通过登录态换取短时效 CDN 地址，但不会读取或导出 Cookie。
           </p>
         </section>
       </section>
